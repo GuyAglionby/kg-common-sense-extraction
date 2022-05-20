@@ -1,30 +1,30 @@
-
 import numpy as np
 import torch
 import os
+
+
 class LRWarmup(object):
     '''
     Bert模型内定的学习率变化机制
     Example:
     '''
 
-    def __init__(self, optimizer,num_warmup_steps):
+    def __init__(self, optimizer, num_warmup_steps):
 
         self.optimizer = optimizer
         self.num_warmup_steps = num_warmup_steps
         self.base_lrs = [group['lr'] for group in optimizer.param_groups]
 
     def step(self, training_step):
-        if training_step<self.num_warmup_steps:
+        if training_step < self.num_warmup_steps:
             for param_group, lr in zip(self.optimizer.param_groups, self.base_lrs):
                 param_group['lr'] = lr * (training_step / self.num_warmup_steps)
-
 
 
 class EarlyStopping:
     """Early stops the training if validation loss doesn't improve after a given patience."""
 
-    def __init__(self,model=None, patience=2,mode='min', verbose=False,min_delta=0, restore_best_weights=False):
+    def __init__(self, model=None, patience=2, mode='min', verbose=False, min_delta=0, restore_best_weights=False):
         """
         Args:
             patience (int): How long to wait after last time validation loss improved.
@@ -84,21 +84,21 @@ class EarlyStopping:
             if self.model_recover:
                 self.model.load_state_dict(torch.load(self.best_path))
 
+
 class ModelCheckpoint(object):
 
-    def __init__(self,model, checkpoint_dir,
-
+    def __init__(self, model, checkpoint_dir,
                  # monitor,
                  mode='min',
                  epoch_freq=1,
-                 best = None,
-                 save_best_only = True,
-                 model_recover = False
+                 best=None,
+                 save_best_only=True,
+                 model_recover=False
                  ):
 
         self.model = model
         self.base_path = checkpoint_dir
-        self.best_path = self.base_path+'.best'
+        self.best_path = self.base_path + '.best'
 
         self.epoch_freq = epoch_freq
         self.save_best_only = save_best_only
@@ -112,7 +112,7 @@ class ModelCheckpoint(object):
             self.monitor_op = np.greater
             self.best = -np.Inf
         # 这里主要重新加载模型时候
-        #对best重新赋值
+        # 对best重新赋值
         if best:
             self.best = best
 
@@ -133,13 +133,13 @@ class ModelCheckpoint(object):
         if self.monitor_op(current, self.best):
             # logger.info(f"\nEpoch {state['epoch']}: {self.monitor} improved from {self.best:.5f} to {current:.5f}")
             self.best = current
-             # Only save the model it-self
+            # Only save the model it-self
             torch.save(model_to_save.state_dict(), self.base_path)
 
             if self.model_recover:
                 if os.path.exists(self.best_path):
                     os.remove(self.best_path)
-                self.best_path = self.base_path+'.best'
+                self.best_path = self.base_path + '.best'
                 torch.save(self.model.state_dict(), self.best_path)
         else:
             if self.model_recover:

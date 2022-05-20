@@ -1,6 +1,7 @@
 import torch
 
-class FGM():
+
+class FGM:
     '''
     Example
     # 初始化
@@ -18,7 +19,8 @@ class FGM():
         optimizer.step()
         model.zero_grad()
     '''
-    def __init__(self, model,emb_name,epsilon=1.0):
+
+    def __init__(self, model, emb_name, epsilon=1.0):
         # emb_name这个参数要换成你模型中embedding的参数名
         self.model = model
         self.epsilon = epsilon
@@ -30,7 +32,7 @@ class FGM():
             if param.requires_grad and self.emb_name in name:
                 self.backup[name] = param.data.clone()
                 norm = torch.norm(param.grad)
-                if norm!=0 and not torch.isnan(norm):
+                if norm != 0 and not torch.isnan(norm):
                     r_at = self.epsilon * param.grad / norm
                     param.data.add_(r_at)
 
@@ -40,6 +42,7 @@ class FGM():
                 assert name in self.backup
                 param.data = self.backup[name]
         self.backup = {}
+
 
 class PGD():
     '''
@@ -65,7 +68,8 @@ class PGD():
         optimizer.step()
         model.zero_grad()
     '''
-    def __init__(self, model,emb_name,epsilon=1.,alpha=0.3):
+
+    def __init__(self, model, emb_name, epsilon=1., alpha=0.3):
         # emb_name这个参数要换成你模型中embedding的参数名
         self.model = model
         self.emb_name = emb_name
@@ -74,7 +78,7 @@ class PGD():
         self.emb_backup = {}
         self.grad_backup = {}
 
-    def attack(self,is_first_attack=False):
+    def attack(self, is_first_attack=False):
         for name, param in self.model.named_parameters():
             if param.requires_grad and self.emb_name in name:
                 if is_first_attack:

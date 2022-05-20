@@ -8,6 +8,13 @@ paper ：DeepBlueAI at TextGraphs 2021 Shared Task: Treating Multi-HopInference 
 
 ### requirement
 
+```bash
+conda create -n deepblue python=3.8.5 numpy matplotlib ipython
+conda activate deepblue
+conda install pytorch=1.6 cudatoolkit=10.1 -c pytorch
+pip install pandas==1.2.3 transformers==4.5.1 sklearn
+```
+
 1. pytorch=1.6
 2. transformers=4.5.1
 3. pandas=1.2.3
@@ -33,33 +40,33 @@ https://huggingface.co/nghuyong/ernie-2.0-large-en/tree/main
 **recall train**
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python recall_trainer.py --output_dir=save_model/recall/roberta --bert_path=roberta-large
+python recall_trainer.py --output_dir=save_model/recall/roberta --bert_path=roberta-large --per_gpu_batch_size 48 
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python recall_trainer.py --output_dir=save_model/recall/ernie --bert_path=ernie-2.0-large-en
+python recall_trainer.py --output_dir=save_model/recall/ernie --bert_path=nghuyong/ernie-2.0-large-en --per_gpu_batch_size 48 
 ```
 
 **recall predict**
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python recall_predict.py
+python recall_predict.py
 ```
 
 **sort train**
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python sort_trainer.py --output_dir=save_model/sort/roberta --bert_path=roberta-large
+python sort_trainer.py --output_dir=save_model/sort/roberta --bert_path=roberta-large --per_gpu_batch_size 48
 ```
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 python sort_trainer.py --output_dir=save_model/sort/ernie --bert_path=ernie-2.0-large-en
+python sort_trainer.py --output_dir=save_model/sort/ernie --bert_path=nghuyong/ernie-2.0-large-en --per_gpu_batch_size 48
 ```
 
 **sort predict**
 
 ```bash
-CUDA_VISIBLE_DEVICES=0 python sort_predict.py
+python sort_predict.py
 ```
 
 

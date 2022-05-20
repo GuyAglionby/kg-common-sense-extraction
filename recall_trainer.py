@@ -1,42 +1,33 @@
 import argparse
+import json
 import logging
 import os
-import random
-import time
+
 import numpy as np
 import torch
-import itertools
-from typing import Any, Callable, Dict, List, NewType, Tuple
-from tqdm.auto import tqdm, trange
-from torch.utils.data.distributed import DistributedSampler
-from torch.utils.data.sampler import RandomSampler, Sampler, SequentialSampler
-from torch.utils.data.dataloader import DataLoader
-from transformers.trainer_pt_utils import SequentialDistributedSampler
-from sklearn.metrics import f1_score, accuracy_score
-from transformers import BertTokenizer, RobertaTokenizer
-from transformers import BertForMaskedLM
-from transformers.optimization import get_linear_schedule_with_warmup
-from transformers.data.data_collator import *
-from transformers.data.datasets import *
-from dataset import *
-from sklearn.model_selection import KFold
-from models.models import *
-from models.adversarial import FGM
-from sklearn import metrics
-import logging
-from models.callbacks import *
 import torch.nn.functional as F
+from torch.utils.data.dataloader import DataLoader
+from torch.utils.data.distributed import DistributedSampler
+from torch.utils.data.sampler import RandomSampler
+from tqdm.auto import tqdm
+from transformers import AutoTokenizer
+from transformers.data.data_collator import *
+from transformers.optimization import get_linear_schedule_with_warmup
+
+from dataset import *
+from model.adversarial import FGM
+from model.models import TripletModel
+
 logger = logging.getLogger()
 from evaluate import eval_ndcg
+
+
 def set_seed(seed: int):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-TOKENIZER = {
-    'bert': BertTokenizer,
-    'roberta': RobertaTokenizer,
-}
+
 
 def get_optimizers(args, model, num_training_steps: int):
     no_decay = ["bias", "LayerNorm.weight"]
@@ -53,15 +44,11 @@ def get_optimizers(args, model, num_training_steps: int):
     return optimizer, scheduler
 
 
-def model_test(args, model,epoch_index):
+def model_test(args, model, epoch_index):
     test_examples = get_test_examples()
     test_dataset = BertDataset(test_examples)
     model.eval()
-    if 'roberta' in args.bert_path:
-        mode_type = 'roberta'
-    else:
-        mode_type = 'bert'
-    tokenizer = TOKENIZER[mode_type].from_pretrained(args.bert_path)
+    tokenizer = AutoTokenizer.from_pretrained(args.bert_path)
     all_facts_keys = list(get_all_facts_from_id().keys())
     all_facts_keys = BertDataset(all_facts_keys)
     facts_preds = []
@@ -79,7 +66,7 @@ def model_test(args, model,epoch_index):
         facts_preds.append(anchor_out)
     facts_preds = torch.cat(facts_preds, dim=0)
     dev_loader = DataLoader(test_dataset, batch_size=args.batch_size,
-                             collate_fn=DataCollatorForTest(tokenizer, mode='test'))
+                            collate_fn=DataCollatorForTest(tokenizer, mode='test'))
     dev_loader = tqdm(dev_loader)
     val_preds = []
     for batch_index, inputs in enumerate(dev_loader):
@@ -91,27 +78,22 @@ def model_test(args, model,epoch_index):
         else:
             anchor_out = model.BERTModel(**inputs).detach()
         val_preds.extend(anchor_out)
-    val_predict = open(args.save_model_path + '/test_predict{0}.txt'.format(epoch_index),'w')
-    for index,(pred, data) in enumerate(zip(val_preds, test_dataset)):
+    val_predict = open(args.save_model_path + '/test_predict{0}.txt'.format(epoch_index), 'w')
+    for index, (pred, data) in enumerate(zip(val_preds, test_dataset)):
         query_id = test_dataset.__getitem__(index)
 
         scores = F.pairwise_distance(pred, facts_preds, p=2).cpu().numpy()
         indices = scores.argsort()[:2000]
         recall_subject_ids = [all_facts_keys[index] for index in indices]
         for recall_id in recall_subject_ids:
-            val_predict.write('{}\t{}\n'.format(query_id,recall_id))
-
+            val_predict.write('{}\t{}\n'.format(query_id, recall_id))
 
     return {'score': 0}
 
 
 def model_eval(args, model, val_dataset):
     model.eval()
-    if 'roberta' in args.bert_path:
-        mode_type = 'roberta'
-    else:
-        mode_type = 'bert'
-    tokenizer = TOKENIZER[mode_type].from_pretrained(args.bert_path)
+    tokenizer = AutoTokenizer.from_pretrained(args.bert_path)
     all_facts_keys = list(get_all_facts_from_id().keys())
     all_facts_keys = BertDataset(all_facts_keys)
     facts_preds = []
@@ -129,7 +111,7 @@ def model_eval(args, model, val_dataset):
         facts_preds.append(anchor_out)
     facts_preds = torch.cat(facts_preds, dim=0)
     dev_loader = DataLoader(val_dataset, batch_size=args.batch_size,
-                             collate_fn=DataCollatorForTest(tokenizer, mode='val'))
+                            collate_fn=DataCollatorForTest(tokenizer, mode='val'))
     dev_loader = tqdm(dev_loader)
     val_preds = []
     for batch_index, inputs in enumerate(dev_loader):
@@ -141,20 +123,19 @@ def model_eval(args, model, val_dataset):
         else:
             anchor_out = model.BERTModel(**inputs).detach()
         val_preds.extend(anchor_out)
-    val_predict = open(args.save_model_path +'/val_predict.txt','w')
-    for index,(pred, data) in enumerate(zip(val_preds, val_dataset)):
+    val_predict = open(args.save_model_path + '/val_predict.txt', 'w')
+    for index, (pred, data) in enumerate(zip(val_preds, val_dataset)):
         query_id = val_dataset.__getitem__(index)
 
         scores = F.pairwise_distance(pred, facts_preds, p=2).cpu().numpy()
         indices = scores.argsort()[:2000]
         recall_subject_ids = [all_facts_keys[index] for index in indices]
         for recall_id in recall_subject_ids:
-            val_predict.write('{}\t{}\n'.format(query_id,recall_id))
+            val_predict.write('{}\t{}\n'.format(query_id, recall_id))
     val_predict.close()
-    score = eval_ndcg(args.save_model_path +'/val_predict.txt')
+    score = eval_ndcg(args.save_model_path + '/val_predict.txt')
     logger.info('val score: {0}'.format(str(score)))
     return {'score': score}
-
 
 
 def train(args, model, train_dataset, eval_dataset=None, data_collator=None):
@@ -207,7 +188,7 @@ def train(args, model, train_dataset, eval_dataset=None, data_collator=None):
     train_iterator = tqdm(range(args.num_train_epochs), desc="Epoch")
     eval_scores = {}
     model_checkpoint_score = ModelCheckpoint(model, args.save_model_path + '/model_best.bin',
-                                          mode="max")
+                                             mode="max")
 
     for epoch_index in train_iterator:
         model.train()
@@ -235,11 +216,6 @@ def train(args, model, train_dataset, eval_dataset=None, data_collator=None):
             optimizer.step()
             optimizer.zero_grad()
             scheduler.step()
-        # if args.local_rank in [-1, 0]:
-        #     if epoch_index>0:
-        #         model_to_save = model.module if hasattr(model, 'module') else model
-        #         torch.save(model_to_save.state_dict(),
-        #                    os.path.join(args.save_model_path, 'pytorch_model.bin' + str(epoch_index)))
 
         if args.do_eval and args.local_rank in [-1, 0]:
             logger.info('val eval')
@@ -248,44 +224,6 @@ def train(args, model, train_dataset, eval_dataset=None, data_collator=None):
             model_checkpoint_score.epoch_step(score['score'])
 
     return eval_scores
-
-
-def main():
-    args = get_argparse()
-    bert_path = args.bert_path
-    logger.info('main')
-    if args.do_adv:
-        args.num_train_epochs += 1
-    set_seed(args.seed)
-    if not os.path.exists(args.output_dir):
-        os.makedirs(args.output_dir)
-    if os.path.isfile(os.path.join(args.output_dir, 'scores.json')):
-        return
-    init_logger(os.path.join(args.output_dir, 'log.txt'))
-    args_dict = vars(args)
-    json.dump(args_dict, open(args.output_dir + '/args.json', 'w'))
-
-    if 'roberta' in bert_path:
-        mode_type = 'roberta'
-    else:
-        mode_type = 'bert'
-    tokenizer = TOKENIZER[mode_type].from_pretrained(args.bert_path)
-    scores = {}
-    train_examples = get_train_examples()
-    val_examples = get_dev_examples()
-
-    train_dataset = BertDataset(examples=train_examples)
-    eval_dataset = BertDataset(examples=val_examples)
-
-    logger.info('train dataset len: {0}'.format(len(train_dataset)))
-
-    logger.info('val dataset len: {0}'.format(len(eval_dataset)))
-    model = TripletModel(
-        bert_model=bert_path,
-    )
-    data_collator = DataCollatorForTrain(tokenizer)
-    args.save_model_path = args.output_dir
-    eval_scores = train(args, model, train_dataset, eval_dataset, data_collator)
 
 
 def get_mean_score(scores):
@@ -321,7 +259,7 @@ def get_argparse():
     parser.add_argument("--seed", default=2021, type=int,
                         help="")
     parser.add_argument('--num_train_epochs', default=15, type=int)
-    parser.add_argument("-per_gpu_batch_size", default=8, type=int,
+    parser.add_argument("--per_gpu_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for training or evaluation.")
     parser.add_argument("--learning_rate", default=1e-5, type=float,
                         help="The initial learning rate for Bert.")
@@ -345,27 +283,42 @@ def get_argparse():
 
     parser.add_argument("--output_dir", default="save_model/recall", type=str)
     parser.add_argument("--bert_path", default="/home/panchg/embedding/ernie-2.0-base-en", type=str, )
-    '''
-    bert-base-uncased
-    ernie-2.0-base-en
-    roberta-base
-    bert-large-uncased
-    roberta-large
-    ernie-2.0-large-en
-    '''
     args = parser.parse_args()
     return args
 
+
+def main():
+    args = get_argparse()
+    bert_path = args.bert_path
+    logger.info('main')
+    if args.do_adv:
+        args.num_train_epochs += 1
+    set_seed(args.seed)
+    if not os.path.exists(args.output_dir):
+        os.makedirs(args.output_dir)
+    if os.path.isfile(os.path.join(args.output_dir, 'scores.json')):
+        return
+    init_logger(os.path.join(args.output_dir, 'log.txt'))
+    args_dict = vars(args)
+    json.dump(args_dict, open(args.output_dir + '/args.json', 'w'))
+
+    tokenizer = AutoTokenizer.from_pretrained(args.bert_path)
+    train_examples = get_train_examples()
+    val_examples = get_dev_examples()
+
+    train_dataset = BertDataset(examples=train_examples)
+    eval_dataset = BertDataset(examples=val_examples)
+
+    logger.info('train dataset len: {0}'.format(len(train_dataset)))
+
+    logger.info('val dataset len: {0}'.format(len(eval_dataset)))
+    model = TripletModel(
+        bert_model=bert_path,
+    )
+    data_collator = DataCollatorForTrain(tokenizer)
+    args.save_model_path = args.output_dir
+    train(args, model, train_dataset, eval_dataset, data_collator)
+
+
 if __name__ == '__main__':
-
     main()
-
-    #CUDA_VISIBLE_DEVICES=0,1 python recall_trainer.py --output_dir=save_model/recall/roberta --bert_path=/home/panchg/embedding/roberta-base
-
-    '''
-    mlm acc,f1 : 0.3422150755243601 0.1364769099050118
-    mlm acc,f1 : 0.32729968512121305 0.13474287074221317
-    mlm acc,f1 : 0.3212296492926155 0.13913180514054874
-
-
-    '''
