@@ -1,3 +1,7 @@
+# Identifying relevant common sense information in knowledge graphs
+
+Code for our paper [Identifying relevant common sense information in knowledge graphs](https://aclanthology.org/2022.csrr-1.1/), built on top of the code from [Pan et al.](https://aclanthology.org/2021.textgraphs-1.18/).
+
 ## Multi-Hop Inference Explanation Regeneration (TextGraphs-15)
 
 
